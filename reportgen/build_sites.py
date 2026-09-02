@@ -42,7 +42,9 @@ def resolve_lookup_path(explicit: str | None) -> Path:
         candidates.append(Path(os.environ["ALSTEF_SITES_LOOKUP"]))
     onedrive = os.environ.get("OneDrive") or os.environ.get("OneDriveCommercial")
     if onedrive:
-        candidates.append(Path(onedrive) / "Support Reports" / _LOOKUP_NAME)
+        candidates.append(
+            Path(onedrive) / "Support SharedDrive" / "LookUp Table" / _LOOKUP_NAME
+        )
     candidates.append(_REPO_ROOT / "Intructions" / "Templates" / _LOOKUP_NAME)
     for path in candidates:
         if path.is_file():

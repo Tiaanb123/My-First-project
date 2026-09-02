@@ -105,10 +105,6 @@ def link(calls: list[Call], tickets: list[Ticket], regions: Regions) -> LinkResu
             f"follow-up ({call.entered:%d %b %H:%M})"
         )
 
-    for number, tids in tickets_for_call.items():
-        if len(tids) > 1:
-            flags.append(f"call {number} matched {len(tids)} tickets: {', '.join(tids)}")
-
     entries: list[Entry] = []
     unmatched_tickets: list[str] = []
 
@@ -163,7 +159,44 @@ def link(calls: list[Call], tickets: list[Ticket], regions: Regions) -> LinkResu
                  transferred_to=call.transferred_to),
         ))
 
+    entries = _merge_duplicate_tickets(entries, flags)
     return LinkResult(entries, flags, unmatched_tickets, unmatched_calls)
+
+
+def _merge_duplicate_tickets(entries: list[Entry], flags: list[str]) -> list[Entry]:
+    """Two CarlSource tickets for the same site linked to the exact same call(s) are one
+    incident logged twice - collapse them into a single entry."""
+    buckets: dict[tuple, list[Entry]] = {}
+    passthrough: list[Entry] = []
+    for e in entries:
+        calls = tuple(sorted(e.data.get("call_numbers", [])))
+        if e.kind == "ticket" and calls:
+            buckets.setdefault((e.site_code, calls), []).append(e)
+        else:
+            passthrough.append(e)
+
+    for (_, calls), group in buckets.items():
+        if len(group) == 1:
+            passthrough.append(group[0])
+            continue
+        group.sort(key=lambda e: e.data.get("begin_date") or "")
+        primary = group[0]
+        ids = [g.data["ticket_id"] for g in group]
+        merged = dict(primary.data)
+        merged["merged_ticket_ids"] = ids[1:]
+        for field in ("reported", "findings", "remedy", "freeform"):
+            seen: list[str] = []
+            for g in group:
+                v = (g.data.get(field) or "").strip()
+                if v and v not in seen:
+                    seen.append(v)
+            merged[field] = "\n\n".join(seen)
+        passthrough.append(Entry(primary.kind, primary.site_code, primary.region,
+                                 primary.sort_key, merged))
+        flags.append(
+            f"merged tickets {' + '.join(ids)} - same site, same call(s) {', '.join(calls)}"
+        )
+    return passthrough
 
 
 def _first_ts(numbers, call_by_number, fallback):

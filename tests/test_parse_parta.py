@@ -161,6 +161,24 @@ def test_link_cross_site_same_region(regions):
     assert entry.kind == "ticket" and entry.data["call_numbers"] == ["15196"]
 
 
+def test_link_merges_duplicate_tickets(regions):
+    calls = _calls(regions, ("15191", dt.datetime(2026, 8, 27, 14, 42), "WLG_APAC"))
+    t1 = _ticket(internal_id="177542", client_customer="WLG_APAC",
+                 begin_date=dt.datetime(2026, 8, 27, 14, 42), reported="Relay fault A",
+                 remedy="Adjusted voltage")
+    t2 = _ticket(internal_id="177543", client_customer="WLG_APAC",
+                 begin_date=dt.datetime(2026, 8, 27, 14, 22), reported="Relay fault A",
+                 findings="No active alarms")
+    res = link(calls, [t1, t2], regions)
+    tickets = [e for e in res.entries if e.kind == "ticket"]
+    assert len(tickets) == 1
+    merged = tickets[0].data
+    assert merged["ticket_id"] == "177543"  # earlier begin_date is primary
+    assert merged["merged_ticket_ids"] == ["177542"]
+    assert merged["reported"] == "Relay fault A"          # deduped
+    assert "No active alarms" in merged["findings"] and "Adjusted voltage" in merged["remedy"]
+
+
 def test_link_followup_call_grouped(regions):
     calls = _calls(
         regions,
@@ -196,7 +214,13 @@ def test_sample_region_grid_matches_finished_example(regions):
         "New Zealand": 8, "United States": 4, "Parcels": 0, "Other": 0,
     }
     assert len(tickets) == 18
-    ids = [e.data["ticket_id"] for e in res.entries if e.kind in ("ticket", "direct")]
-    assert sorted(ids) == sorted(t.internal_id for t in tickets)
+    ids = set()
+    for e in res.entries:
+        if e.kind in ("ticket", "direct"):
+            ids.add(e.data["ticket_id"])
+            ids.update(e.data.get("merged_ticket_ids", []))
+    assert ids == {t.internal_id for t in tickets}
     assert not res.unmatched_calls
     assert not any(r["name"] == "Other" for r in data["regions"])
+    # 177542 / 177543 are one WLG incident (call 15191) - collapsed to one entry
+    assert any(f.startswith("merged tickets 177543 + 177542") for f in res.flags)
