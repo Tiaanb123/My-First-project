@@ -1,0 +1,69 @@
+# Site code -> metadata. Consumed by reportgen.discover (step 1) and later stages.
+#
+# Fields used by step 1:
+#   airport_name  full name as it appears in a GlideView filename
+#                 ("<airport_name> - GlideView Reports Week Ending Sunday, <date>.xlsx")
+#   bhs_source    "glideview" | "baganalytics"  (exactly one site may be "baganalytics")
+#   region        Part A region heading this site rolls up under
+#   location_id   value seen in the phone log's "Location of the caller" column
+#
+# TODO (confirm before those sites first appear in a real drop):
+#   - AMX (Aramex): code + location_id are a guess
+#   - Canadian Sites: the ~19 individual site codes still need seeding
+
+sites:
+  ZQN:
+    name: Queenstown
+    airport_name: Queenstown International Airport
+    region: New Zealand
+    location_id: ZQN_APAC
+    bhs_source: glideview
+    facilities_contact: "Sean Whittaker, Facilities Manager"
+
+  CHC:
+    name: Christchurch
+    airport_name: Christchurch International Airport
+    region: New Zealand
+    location_id: CHC_APAC
+    bhs_source: glideview
+
+  DUD:
+    name: Dunedin
+    airport_name: Dunedin International Airport
+    region: New Zealand
+    location_id: DUD_APAC
+
+  ADL:
+    name: Adelaide
+    airport_name: Adelaide Airport
+    region: Australia
+    location_id: ADL_APAC
+    bhs_source: baganalytics
+
+  PER:
+    name: Perth
+    airport_name: Perth Airport
+    region: Australia
+    location_id: PER_APAC
+
+  SFO:
+    name: San Francisco
+    airport_name: San Francisco International Airport
+    region: United States
+    location_id: SFO_APAC
+
+  BDA:
+    name: Bermuda
+    airport_name: L.F. Wade International Airport
+    region: Bermuda
+    location_id: BDA_APAC
+
+  AMX:
+    name: Aramex
+    region: Parcels
+    location_id: AMX_APAC   # TODO confirm
+
+  AUSPOS:
+    name: StarTrack
+    region: Parcels
+    location_id: AUSPOS_APAC
