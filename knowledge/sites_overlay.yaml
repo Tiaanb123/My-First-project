@@ -1,0 +1,18 @@
+# Hand-maintained overrides merged into the generated knowledge/sites.yaml by
+# `python -m reportgen.build_sites`. Everything the site lookup workbook does NOT carry
+# lives here: GlideView airport-name matching and which BHS product a site uses.
+#
+# Keys are site codes (CS Client minus the _APAC suffix).
+
+overrides:
+  ZQN:
+    airport_name: "Queenstown International Airport"
+    bhs_source: glideview
+  CHC:
+    airport_name: "Christchurch International Airport"
+    bhs_source: glideview
+  DUD:
+    airport_name: "Dunedin International Airport"
+  ADL:
+    airport_name: "Adelaide Airport"
+    bhs_source: baganalytics

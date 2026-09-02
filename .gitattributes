@@ -1,0 +1,9 @@
+# Keep source LF-normalised; leave sample data + Office files untouched.
+*.py    text eol=lf
+*.md    text eol=lf
+*.yaml  text eol=lf
+*.yml   text eol=lf
+
+*.xlsx  binary
+*.xls   -text
+*.docx  binary
