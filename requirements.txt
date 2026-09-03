@@ -1,8 +1,7 @@
 openpyxl>=3.1
 PyYAML>=6.0
+python-docx>=1.1
 
-# Needed by later pipeline stages (parse/build), not by step 1 (discover):
-# python-docx>=1.1
+# Needed by later BHS stages, not yet:
 # pandas>=2.2
 # matplotlib>=3.8
-# lxml>=5.0

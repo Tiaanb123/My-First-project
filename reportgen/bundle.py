@@ -61,6 +61,14 @@ def build_part_a(
                 "after_hours_pct": phone.after_hours_pct,
                 "lines": phone.stats_lines,
             },
+            "phone_calls": [
+                {
+                    "number": c.number,
+                    "location_id": c.location_id,
+                    "timestamp": c.entered.isoformat() if c.entered else None,
+                }
+                for c in phone.calls
+            ],
             "region_counts": region_counts,
             "regions": regions_out,
             "flags": links.flags,

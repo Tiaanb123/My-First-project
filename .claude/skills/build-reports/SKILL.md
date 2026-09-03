@@ -83,12 +83,26 @@ python -m reportgen.run --stage parse
 
 Parses the phone log + CarlSource export, links calls to tickets, and writes
 `work/bundle.json` (regions → sites → entries; `region_counts`, `totals`, `flags`).
-Surface the printed flag list to the user. BHS (`--stage parse` for GlideView /
-BagAnalytics) is not built yet.
+Surface the printed flag list to the user. BHS (GlideView / BagAnalytics) is not built yet.
 
-## Steps 4–6  *(not yet implemented)*
+## Step 5 — Build Part A .docx  *(implemented — V1, raw text)*
 
-4. Claude reads `work/bundle.json` and writes `work/narrative.json` (prose + any
-   ambiguous-match decisions).
-5. `python -m reportgen.run --stage build`.
+```
+python -m reportgen.run --stage build
+```
+
+Renders `Output/Weekly_Support_Tickets_Report_<week>.docx`: letterhead, title, date, the
+calls-per-site **native pie chart** right after the date, totals, region grid, region
+headings + ticket/direct/call blocks with raw Reported/Findings/Remedy. No AI prose yet
+(step 4) and no Part B / BHS yet.
+
+## One-shot demo
+
+`python -m reportgen.demo` (or the packaged `dist/WeeklyReport.exe` — see `build_exe.bat`
+and README) chains discover → pause → parse → build and opens `Output/`.
+
+## Steps 4, 6  *(not yet implemented)*
+
+4. Claude reads `work/bundle.json` and writes `work/narrative.json` (prose + ambiguous
+   links) which `--stage build` will merge.
 6. Report what landed in `Output/`.
