@@ -52,7 +52,7 @@ def main() -> int:
     try:
         print()
         bundle_path = run_parse(config.DROPBOX, config.KNOWLEDGE, config.WORK)
-        out = build_part_a.build(bundle_path, config.OUTPUT)
+        out, _chart_data = build_part_a.build(bundle_path, config.OUTPUT)
     except DiscoveryError as exc:
         print(f"\n[stopped] {exc}\n")
         _pause()

@@ -9,7 +9,7 @@ from reportgen import parse_carlsource, parse_phonelogs
 from reportgen.bundle import build_part_a
 from reportgen.link import link
 from reportgen.regions import Regions
-from tests.conftest import carlsource_xml, make_carlsource, make_phonelogs
+from tests.conftest import make_carlsource, make_phonelogs
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 KNOWLEDGE = REPO_ROOT / "knowledge"
@@ -45,27 +45,28 @@ def test_regions_obscure_region_is_other(regions):
 # ---------------------------------------------------------------- parse_carlsource
 
 def test_parse_carlsource_fields_and_sections(tmp_path):
-    path = tmp_path / "cs.xls"
+    path = tmp_path / "cs.xlsx"
     make_carlsource(path, [
-        {"id": "176973", "title": "TC2 was down", "customer": "YLW_APAC",
-         "contract": "BHSYLW", "begin": "2026-08-24T03:31:00.000",
-         "end": "2026-08-24T15:07:27.752", "engineer": "Venthan Premadas",
-         "status": "Closed", "reported": "Whole TC2 line was off.",
+        {"id": "176973", "title": "TC2 was down", "client_code": "YLW_APAC",
+         "client_name": "Kelowna Airport", "begin": "24/08/2026 03:31:00",
+         "status": "CLOSED", "call_reference": "Direct Email",
+         "reported": "Whole TC2 line was off.",
          "findings": "PLC I/O looked good.", "remedy": "Replaced the fuse.",
          "freeform": "Don reported TC2 went down."},
-        {"id": "177547", "title": "BagSort failures", "customer": "YEG_APAC",
-         "contract": "BHSYEG", "begin": "2026-08-28T16:31:00.000",
-         "end": "2026-08-31T18:00:00.000", "engineer": "V P", "status": "In progress",
-         "body": "Reported: BagSort comms failure\nRemedy: Escalated\n"
-                 "28/08:\nWe received a call (Call ref 1519) about it.\n"},
+        {"id": "177547", "title": "BagSort failures", "client_code": "YEG_APAC",
+         "client_name": "Edmonton Intl. Airport", "begin": "28/08/2026 16:31:00",
+         "status": "INPROGRESS", "call_reference": "1519",
+         "comments": "Reported: BagSort comms failure\nRemedy: Escalated\n"
+                     "28/08:\nWe received a call (Call ref 1519) about it.\n"},
     ])
     tickets = parse_carlsource.parse(path)
     assert [t.internal_id for t in tickets] == ["176973", "177547"]
 
     t0 = tickets[0]
-    assert t0.client_customer == "YLW_APAC" and t0.contract == "BHSYLW"
+    assert t0.client_code == "YLW_APAC" and t0.client_name == "Kelowna Airport"
     assert t0.begin_date == dt.datetime(2026, 8, 24, 3, 31)
-    assert t0.status == "Closed" and t0.engineer == "Venthan Premadas"
+    assert t0.status == "CLOSED"
+    assert t0.call_reference == "Direct Email" and t0.call_ref_hint is None
     assert t0.reported == "Whole TC2 line was off."
     assert t0.findings == "PLC I/O looked good."
     assert t0.remedy == "Replaced the fuse."
@@ -76,17 +77,27 @@ def test_parse_carlsource_fields_and_sections(tmp_path):
 
 
 def test_parse_carlsource_splits_run_together_labels(tmp_path):
-    path = tmp_path / "cs.xls"
+    path = tmp_path / "cs.xlsx"
     make_carlsource(path, [{
-        "id": "177122", "title": "Critical fault", "customer": "WLG_APAC",
-        "begin": "2026-08-25T05:56:00.000",
-        "body": "Reported: Relay tripped.\nFindings: Just a monitor relay.Remedy: Site "
-                "electrician to reset.\n25/08:\nIssue with baggage system\n",
+        "id": "177122", "title": "Critical fault", "client_code": "WLG_APAC",
+        "begin": "25/08/2026 05:56:00",
+        "comments": "Reported: Relay tripped.\nFindings: Just a monitor relay.Remedy: Site "
+                    "electrician to reset.\n25/08:\nIssue with baggage system\n",
     }])
     t = parse_carlsource.parse(path)[0]
     assert t.findings == "Just a monitor relay."
     assert t.remedy == "Site electrician to reset."
     assert t.freeform.startswith("25/08")
+
+
+def test_parse_carlsource_stops_at_footer_row(tmp_path):
+    path = tmp_path / "cs.xlsx"
+    make_carlsource(path, [
+        {"id": "177122", "title": "Critical fault", "client_code": "WLG_APAC",
+         "begin": "25/08/2026 05:56:00", "comments": "Reported: Relay tripped.\n"},
+    ])
+    tickets = parse_carlsource.parse(path)
+    assert len(tickets) == 1
 
 
 # ---------------------------------------------------------------- parse_phonelogs
@@ -116,9 +127,9 @@ def _calls(regions, *specs):
 
 def _ticket(**kw):
     from reportgen.parse_carlsource import Ticket
-    base = dict(internal_id="1", title="t", client_customer="YLW_APAC", contract=None,
-                begin_date=None, end_date=None, engineer=None, status=None, downtime=None,
-                reported="", findings="", remedy="", freeform="", call_ref_hint=None)
+    base = dict(internal_id="1", title="t", client_code="YLW_APAC", client_name=None,
+                status=None, begin_date=None, call_ref_hint=None, call_reference=None,
+                reported="", findings="", remedy="", freeform="")
     base.update(kw)
     return Ticket(**base)
 
@@ -126,7 +137,7 @@ def _ticket(**kw):
 def test_link_window_match_and_direct(regions):
     calls = _calls(regions, ("15179", dt.datetime(2026, 8, 24, 3, 31), "YLW_APAC"))
     t_match = _ticket(internal_id="176973", begin_date=dt.datetime(2026, 8, 24, 3, 31))
-    t_direct = _ticket(internal_id="177611", client_customer="YLW_APAC",
+    t_direct = _ticket(internal_id="177611", client_code="YLW_APAC",
                        begin_date=dt.datetime(2026, 8, 28, 8, 14),
                        freeform="Marcus emailed about it")
     res = link(calls, [t_match, t_direct], regions)
@@ -143,7 +154,7 @@ def test_link_call_ref_hint_locks(regions):
         ("15197", dt.datetime(2026, 8, 28, 16, 31), "YEG_APAC"),
         ("15192", dt.datetime(2026, 8, 27, 23, 6), "YEG_APAC"),  # earlier, different incident
     )
-    t = _ticket(internal_id="177547", client_customer="YEG_APAC",
+    t = _ticket(internal_id="177547", client_code="YEG_APAC",
                 begin_date=dt.datetime(2026, 8, 28, 16, 31), call_ref_hint="1519")
     res = link(calls, [t], regions)
     entry = next(e for e in res.entries if e.data.get("ticket_id") == "177547")
@@ -154,7 +165,7 @@ def test_link_call_ref_hint_locks(regions):
 def test_link_cross_site_same_region(regions):
     # call from ANZ_APAC, ticket filed against AKL_APAC — same region (NZ) should match.
     calls = _calls(regions, ("15196", dt.datetime(2026, 8, 28, 13, 3), "ANZ_APAC"))
-    t = _ticket(internal_id="177545", client_customer="AKL_APAC",
+    t = _ticket(internal_id="177545", client_code="AKL_APAC",
                 begin_date=dt.datetime(2026, 8, 28, 13, 3))
     res = link(calls, [t], regions)
     entry = next(e for e in res.entries if e.data.get("ticket_id") == "177545")
@@ -163,10 +174,10 @@ def test_link_cross_site_same_region(regions):
 
 def test_link_merges_duplicate_tickets(regions):
     calls = _calls(regions, ("15191", dt.datetime(2026, 8, 27, 14, 42), "WLG_APAC"))
-    t1 = _ticket(internal_id="177542", client_customer="WLG_APAC",
+    t1 = _ticket(internal_id="177542", client_code="WLG_APAC",
                  begin_date=dt.datetime(2026, 8, 27, 14, 42), reported="Relay fault A",
                  remedy="Adjusted voltage")
-    t2 = _ticket(internal_id="177543", client_customer="WLG_APAC",
+    t2 = _ticket(internal_id="177543", client_code="WLG_APAC",
                  begin_date=dt.datetime(2026, 8, 27, 14, 22), reported="Relay fault A",
                  findings="No active alarms")
     res = link(calls, [t1, t2], regions)
@@ -185,7 +196,7 @@ def test_link_followup_call_grouped(regions):
         ("15194", dt.datetime(2026, 8, 28, 4, 36), "BDA_APAC"),
         ("15195", dt.datetime(2026, 8, 28, 11, 51), "BDA_APAC"),
     )
-    t = _ticket(internal_id="177538", client_customer="BDA_APAC",
+    t = _ticket(internal_id="177538", client_code="BDA_APAC",
                 begin_date=dt.datetime(2026, 8, 28, 4, 36))
     res = link(calls, [t], regions)
     entry = next(e for e in res.entries if e.data.get("ticket_id") == "177538")

@@ -37,6 +37,7 @@ sites:
     - MNTAMX
     status: Expired
     contact_email: andre@aramex.com
+    country: New Zealand
   ANZ:
     location_id: ANZ_APAC
     name: Air NZ Domestic
@@ -375,7 +376,7 @@ sites:
     region: Canada
     contracts:
     - BHSUST
-    status: Active
+    status: Stop Service
     contact_raw: Send feedback form to caller
   WLG:
     location_id: WLG_APAC

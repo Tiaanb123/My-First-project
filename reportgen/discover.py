@@ -19,12 +19,15 @@ import yaml
 from . import dates
 
 
-def _load_workbook(path: Path):
-    """openpyxl read-only + data-only, minus the noisy 'no default style' warning
-    some third-party exports (GlideView, BagAnalytics) trigger."""
+def _load_workbook(path: Path, read_only: bool = True):
+    """openpyxl data-only (read-only by default), minus the noisy 'no default style'
+    warning some third-party exports (GlideView, BagAnalytics, CarlSource) trigger.
+
+    `read_only=False` is needed for exports whose sheet dimension metadata is wrong or
+    missing (the CarlSource BIRT export truncates to one row under read-only iteration)."""
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", message="Workbook contains no default style")
-        return openpyxl.load_workbook(path, read_only=True, data_only=True)
+        return openpyxl.load_workbook(path, read_only=read_only, data_only=True)
 
 # --------------------------------------------------------------------------------------
 # Filename patterns
@@ -167,20 +170,35 @@ def parse_glideview(path: Path) -> tuple[str, dt.date]:
     return m["airport"].strip(), week_ending
 
 
-def _looks_like_baganalytics_contents(path: Path) -> bool:
+def _looks_like_baganalytics_contents(
+    path: Path,
+) -> tuple[bool, tuple[dt.date, dt.date] | None]:
+    """Scan the 'Summary' sheet once for both the BagAnalytics marker and the week-ending
+    date range, so a matched file doesn't need a second `baganalytics_week()` scan.
+    Returns `(matched, week)` - `week` is `None` when the marker matched but the date
+    cell wasn't found in the scanned rows; the caller re-scans via `baganalytics_week()`
+    to raise a proper error in that case."""
     try:
         wb = _load_workbook(path)
     except Exception:
-        return False
+        return False, None
     try:
         if "Summary" not in wb.sheetnames:
-            return False
+            return False, None
         ws = wb["Summary"]
+        found_marker = False
+        week: tuple[dt.date, dt.date] | None = None
         for row in ws.iter_rows(min_row=1, max_row=40, values_only=True):
             for value in row:
-                if isinstance(value, str) and _BAGANALYTICS_MARKER in value.lower():
-                    return True
-        return False
+                if not isinstance(value, str):
+                    continue
+                if _BAGANALYTICS_MARKER in value.lower():
+                    found_marker = True
+                if week is None:
+                    m = _BAGANALYTICS_DATE_RE.search(value)
+                    if m:
+                        week = dates.parse_us_date(m.group(1)), dates.parse_us_date(m.group(2))
+        return found_marker, week
     finally:
         wb.close()
 
@@ -392,7 +410,10 @@ def _classify_part_b(
             continue
 
         bag_match = _BAGANALYTICS_NAME_RE.match(stem)
-        if bag_match or _looks_like_baganalytics_contents(path):
+        content_matched, content_week = (
+            (False, None) if bag_match else _looks_like_baganalytics_contents(path)
+        )
+        if bag_match or content_matched:
             code = bag_match.group("code") if bag_match and bag_match.group("code") else None
             if code:
                 site = code.upper()
@@ -403,7 +424,10 @@ def _classify_part_b(
                     )
             else:
                 site = resolve_baganalytics_site(sites)
-            _, wk_end = baganalytics_week(path)
+            # content_week already came from the scan above; only re-scan via
+            # baganalytics_week() when that scan didn't turn up a date (or the
+            # filename-prefix path never scanned content at all).
+            wk_end = content_week[1] if content_week else baganalytics_week(path)[1]
             part_b.append(PartBInput(path, site, "baganalytics", wk_end))
             continue
 

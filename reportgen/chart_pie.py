@@ -18,19 +18,26 @@ from . import config
 
 _TITLE_PLACEHOLDER = "Weekly Call Logs 31/08/2026"
 
-_DRAWING = (
-    '<w:p><w:pPr><w:spacing w:before="120" w:after="120"/></w:pPr>'
-    '<w:r><w:rPr><w:noProof/></w:rPr><w:drawing>'
-    '<wp:inline distT="0" distB="0" distL="0" distR="0" '
-    'xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing">'
-    '<wp:extent cx="5486400" cy="3200400"/><wp:effectExtent l="0" t="0" r="0" b="0"/>'
-    '<wp:docPr id="100" name="Calls by site"/><wp:cNvGraphicFramePr/>'
-    '<a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">'
-    '<a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/chart">'
-    '<c:chart xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" '
-    'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" '
-    'r:id="__RID__"/></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>'
-)
+# The chart's original design size (EMU) - its aspect ratio is preserved when the chart
+# is resized to fill the page's content width.
+_DEFAULT_CX = 5486400
+_DEFAULT_CY = 3200400
+
+
+def _drawing_xml(rid: str, cx: int, cy: int) -> str:
+    return (
+        '<w:p><w:pPr><w:spacing w:before="120" w:after="120"/></w:pPr>'
+        '<w:r><w:rPr><w:noProof/></w:rPr><w:drawing>'
+        '<wp:inline distT="0" distB="0" distL="0" distR="0" '
+        'xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing">'
+        f'<wp:extent cx="{cx}" cy="{cy}"/><wp:effectExtent l="0" t="0" r="0" b="0"/>'
+        '<wp:docPr id="100" name="Calls by site"/><wp:cNvGraphicFramePr/>'
+        '<a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">'
+        '<a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/chart">'
+        f'<c:chart xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" '
+        'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" '
+        f'r:id="{rid}"/></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>'
+    )
 
 _SENTINEL = "__PIE_CHART__"
 _SENTINEL_PARA_RE = re.compile(
@@ -104,7 +111,9 @@ def embedded_xlsx(data: list[tuple[str, int]]) -> bytes:
     return buf.getvalue()
 
 
-def inject(docx_path: Path, data: list[tuple[str, int]], title: str) -> None:
+def inject(
+    docx_path: Path, data: list[tuple[str, int]], title: str, width_emu: int | None = None,
+) -> None:
     docx_path = Path(docx_path)
     with zipfile.ZipFile(docx_path) as z:
         parts: dict[str, bytes] = {name: z.read(name) for name in z.namelist()}
@@ -130,8 +139,10 @@ def inject(docx_path: Path, data: list[tuple[str, int]], title: str) -> None:
     parts["word/theme/themeOverride1.xml"] = (config.CHART_DIR / "themeOverride1.xml").read_bytes()
     parts["word/embeddings/pie.xlsx"] = embedded_xlsx(data)
 
+    cx = width_emu if width_emu else _DEFAULT_CX
+    cy = round(cx * _DEFAULT_CY / _DEFAULT_CX)
     doc = parts["word/document.xml"].decode("utf-8")
-    drawing = _DRAWING.replace("__RID__", rid)
+    drawing = _drawing_xml(rid, cx, cy)
     doc, count = _SENTINEL_PARA_RE.subn(lambda _m: drawing, doc, count=1)
     if count != 1:
         raise RuntimeError(f"pie-chart sentinel {_SENTINEL!r} not found in document.xml")

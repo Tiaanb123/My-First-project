@@ -37,6 +37,36 @@ def _cell(row, i):
     return row[i] if i is not None and i < len(row) else None
 
 
+def _text(value) -> str:
+    """Cell text with Excel's `_x000D_` (escaped carriage return) stripped."""
+    return str(value or "").replace("_x000D_", "").strip()
+
+
+_TIME_FORMATS = ("%d/%m/%Y %H:%M:%S", "%d/%m/%Y %H:%M")
+
+
+def _parse_entered(value, number: str) -> dt.datetime | None:
+    """`Time Entered` is a real datetime in some rows and a `DD/MM/YYYY HH:MM:SS` string in
+    others (same export). Blank -> None; anything present but unreadable is a hard error,
+    since a silent None drops the call out of ticket matching."""
+    if isinstance(value, dt.datetime):
+        return value
+    if isinstance(value, (int, float)):
+        return dt.datetime(1899, 12, 30) + dt.timedelta(days=float(value))
+    if isinstance(value, str) and value.strip():
+        text = value.strip()
+        for fmt in _TIME_FORMATS:
+            try:
+                return dt.datetime.strptime(text, fmt)
+            except ValueError:
+                continue
+        raise DiscoveryError(
+            f"Phone log call {number}: unreadable 'Time Entered' value {value!r} "
+            f"(expected DD/MM/YYYY HH:MM:SS)"
+        )
+    return None
+
+
 def parse(path) -> PhoneData:
     wb = _load_workbook(path)
     try:
@@ -61,21 +91,18 @@ def parse(path) -> PhoneData:
             number = _cell(row, c_num)
             if number is None or str(number).strip() == "":
                 continue
-            entered = _cell(row, c_time)
-            if isinstance(entered, (int, float)):
-                entered = dt.datetime(1899, 12, 30) + dt.timedelta(days=float(entered))
-            elif not isinstance(entered, dt.datetime):
-                entered = None
+            call_number = str(number).strip().split(".")[0]
+            entered = _parse_entered(_cell(row, c_time), call_number)
             loc = _cell(row, c_loc)
             calls.append(
                 Call(
-                    number=str(number).strip().split(".")[0],
+                    number=call_number,
                     entered=entered,
                     location_id=str(loc).strip() if loc else None,
                     transferred_to=(str(_cell(row, c_who)).strip() or None) if _cell(row, c_who) else None,
                     operator=(str(_cell(row, c_op)).strip() or None) if _cell(row, c_op) else None,
-                    comments=str(_cell(row, c_com) or "").strip(),
-                    inquiry=str(_cell(row, c_inq) or "").strip(),
+                    comments=_text(_cell(row, c_com)),
+                    inquiry=_text(_cell(row, c_inq)),
                 )
             )
 

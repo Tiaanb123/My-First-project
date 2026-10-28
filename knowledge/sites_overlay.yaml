@@ -16,3 +16,8 @@ overrides:
   ADL:
     airport_name: "Adelaide Airport"
     bhs_source: baganalytics
+  AMX:
+    # Every other Parcels site in the lookup workbook is Australian (regions.py defaults
+    # Parcels sites to Australia); Aramex is the one exception - flagged by Tiaan on the
+    # 7-13 Sep report, corrected here rather than in the Parcels-country default.
+    country: "New Zealand"

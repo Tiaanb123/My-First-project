@@ -224,8 +224,8 @@ def test_discover_inputs_phone_log_row_outside_week_hard_stops(dropbox):
 
 
 def test_discover_inputs_mismatched_part_a_files(dropbox):
-    (dropbox / "PartA" / "Carlsource - 24.08 to 30.08.2026.xls").unlink()
-    (dropbox / "PartA" / "Carlsource - 17.08 to 23.08.2026.xls").write_text("<Workbook/>", "utf-8")
+    (dropbox / "PartA" / "Carlsource - 24.08 to 30.08.2026.xlsx").unlink()
+    (dropbox / "PartA" / "Carlsource - 17.08 to 23.08.2026.xlsx").write_text("dummy", "utf-8")
     with pytest.raises(DiscoveryError, match="different weeks|missing"):
         discover_inputs(dropbox, KNOWLEDGE(dropbox))
 

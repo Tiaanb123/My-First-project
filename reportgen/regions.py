@@ -27,7 +27,7 @@ class SiteRef:
     contact_name: str | None = None
     contact_email: str | None = None
     contact_raw: str | None = None
-    country: str | None = None  # Parcels sub-heading, filled later
+    country: str | None = None  # Parcels sub-heading (default Australia; override in sites_overlay)
 
 
 class Regions:
@@ -38,10 +38,12 @@ class Regions:
         self.by_contract: dict[str, str] = {}
         self.by_norm_name: dict[str, str] = {}
         for code, info in sites.items():
+            region = info.get("region", "Other")
             ref = SiteRef(
                 code=code,
                 name=info.get("name", code),
-                region=info.get("region", "Other"),
+                region=region,
+                country=info.get("country") or ("Australia" if region == "Parcels" else None),
                 location_id=info.get("location_id"),
                 contact_name=info.get("contact_name"),
                 contact_email=info.get("contact_email"),

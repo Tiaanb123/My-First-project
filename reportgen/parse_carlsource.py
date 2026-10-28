@@ -1,57 +1,50 @@
-"""Parse the CarlSource bulk ticket export.
+"""Parse the CarlSource ticket export.
 
-The file claims to be `.xls` but is SpreadsheetML XML (a BIRT export). It is valid UTF-8
-and parses with the stdlib; no `lxml` / `xlrd` needed. One `Report` worksheet holds one
-block per ticket, delimited by a row `<internal id> - <title>`.
+A real `.xlsx` with one `WO Report` worksheet: a couple of "Filter criteria" rows, a
+header row, one row per ticket (`Name, WO, Call Reference, Status code, Start date,
+Client Code, Client name, Comments`), then a `Lines number` footer row. `Comments` holds
+the same `Reported:/Findings:/Remedy:` + dated-freeform-notes text as before.
 """
 from __future__ import annotations
 
 import dataclasses
 import datetime as dt
 import re
-import xml.etree.ElementTree as ET
-from pathlib import Path
 
-_SS = "urn:schemas-microsoft-com:office:spreadsheet"
-_NS = {"s": _SS}
-_INDEX_ATTR = f"{{{_SS}}}Index"
+from . import textclean
+from .discover import DiscoveryError, _load_workbook
 
-# Real header: "176973 - TC2 was down…" — 4-6 digit id, spaces around the dash, title
-# starts with a non-digit. (Excludes ISO date values like "2026-08-24T03:31:00.000".)
-_TICKET_HEADER_RE = re.compile(r"^\s*(\d{4,6})\s+-\s+(\D.*?)\s*$")
-_LABELS = {
-    "customer": "client",           # "Client/Customer :"
-    "contract": "contract",         # "Contrat / Contract:"
-    "begin": "begin date",
-    "end": "end date",
-    "engineer": "reception call",
-    "status": "ticket status",
-    "downtime": "downtime",
+_HEADER = ("name", "wo", "call reference", "status code", "start date",
+           "client code", "client name", "comments")
+# A label is `Reported:` anywhere, or - because some exports drop the colon and run the text
+# on (`ReportedAll bags...`, `Remedy` alone on a line) - the bare word at the start of a line.
+_RFR_RE = {
+    k: re.compile(rf"(?i:\b{k}\s*:)|(?m:^)[ \t]*(?i:{k})(?=[A-Z]|(?m:[ \t]*$))")
+    for k in ("reported", "findings", "remedy")
 }
-_RFR_RE = {k: re.compile(rf"(?i)\b{k}\s*:") for k in ("reported", "findings", "remedy")}
+_CALL_REF_NUM_RE = re.compile(r"\d{4,}")
 _FREEFORM_START_RE = re.compile(
     r"(?im)^\s*(?:\d{1,2}/\d{1,2}\s*:?(?:\s|$)|\d{1,2}(?:st|nd|rd|th)?\s+"
     r"(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b)"
 )
-_CALL_REF_RE = re.compile(r"call\s*ref\.?\s*#?\s*(\d{3,6})", re.IGNORECASE)
 
 
 @dataclasses.dataclass
 class Ticket:
     internal_id: str
     title: str
-    client_customer: str | None
-    contract: str | None
-    begin_date: dt.datetime | None
-    end_date: dt.datetime | None
-    engineer: str | None
+    client_code: str | None
+    client_name: str | None
     status: str | None
-    downtime: str | None
+    begin_date: dt.datetime | None
+    call_ref_hint: str | None
+    call_reference: str | None
     reported: str
     findings: str
     remedy: str
     freeform: str
-    call_ref_hint: str | None
+    call_refs: list[str] = dataclasses.field(default_factory=list)
+    summary: str = ""
 
 
 def _clean(text: str) -> str:
@@ -61,137 +54,109 @@ def _clean(text: str) -> str:
     return text.strip()
 
 
-def _row_cells(row) -> list[tuple[int, str]]:
-    """(column index, text) for each cell, honouring ss:Index gaps."""
-    out: list[tuple[int, str]] = []
-    col = 0
-    for cell in row.findall("s:Cell", _NS):
-        if cell.get(_INDEX_ATTR):
-            col = int(cell.get(_INDEX_ATTR))
-        else:
-            col += 1
-        data = cell.find("s:Data", _NS)
-        text = _clean("".join(data.itertext())) if data is not None else ""
-        out.append((col, text))
-    return out
-
-
-def _iso(value: str) -> dt.datetime | None:
-    value = value.strip()
-    if not value:
-        return None
-    try:
-        return dt.datetime.fromisoformat(value)
-    except ValueError:
-        return None
-
-
-def _label_value(cells: list[tuple[int, str]], fragment: str) -> str | None:
-    for pos, (_, text) in enumerate(cells):
-        if fragment in text.lower():
-            for _, later in cells[pos + 1:]:
-                if later.strip():
-                    return later.strip()
-            return None
-    return None
+def _text(value) -> str:
+    return _clean(str(value)) if value is not None else ""
 
 
 def _split_sections(detail: str) -> tuple[str, str, str, str]:
     if not detail.strip():
         return "", "", "", ""
-    found = {k: m.start() for k, r in _RFR_RE.items() if (m := r.search(detail))}
-    if not found:
+    labels = sorted(
+        (m.start(), m.end(), k) for k, r in _RFR_RE.items() for m in r.finditer(detail)
+    )
+    if not labels:
         return "", "", "", detail.strip()
 
-    first_label = min(found.values())
-    ff = _FREEFORM_START_RE.search(detail, first_label)
+    ff = _FREEFORM_START_RE.search(detail, labels[0][0])
     rfr_end = ff.start() if ff else len(detail)
     freeform = detail[rfr_end:].strip()
 
-    ordered = sorted((p, k) for k, p in found.items() if p < rfr_end)
+    labels = [lab for lab in labels if lab[0] < rfr_end]
     out = {"reported": "", "findings": "", "remedy": ""}
-    for i, (pos, key) in enumerate(ordered):
-        seg_start = _RFR_RE[key].search(detail, pos).end()
-        seg_end = ordered[i + 1][0] if i + 1 < len(ordered) else rfr_end
+    seen: set[str] = set()
+    for i, (_, seg_start, key) in enumerate(labels):
+        if key in seen:
+            continue  # a repeated label starts a duplicate block - keep the first
+        seen.add(key)
+        seg_end = labels[i + 1][0] if i + 1 < len(labels) else rfr_end
         out[key] = detail[seg_start:seg_end].strip()
     return out["reported"], out["findings"], out["remedy"], freeform
 
 
-def _finish(block: list[list[tuple[int, str]]]) -> Ticket | None:
-    header = None
-    for cells in block:
-        for _, text in cells:
-            m = _TICKET_HEADER_RE.match(text)
-            if m and not text.lower().startswith("date"):
-                header = m
-                break
-        if header:
-            break
-    if not header:
-        return None
+def _find_header_row(rows: list[tuple]) -> int:
+    for i, row in enumerate(rows):
+        cells = tuple(_text(v).lower() for v in row[: len(_HEADER)])
+        if cells == _HEADER:
+            return i
+    raise DiscoveryError(
+        "CarlSource export: couldn't find the ticket table header row "
+        f"({', '.join(_HEADER)}) on the 'WO Report' sheet"
+    )
 
-    detail_lines: list[str] = []
-    in_detail = False
-    fields: dict[str, str | None] = {}
-    for cells in block:
-        joined_low = " ".join(t.lower() for _, t in cells)
-        if "work details" in joined_low:
-            in_detail = True
+
+_BEGIN_FORMATS = ("%d/%m/%Y %H:%M:%S", "%d/%m/%Y %H:%M", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M")
+
+
+def _parse_begin_date(raw, ticket_id: str) -> dt.datetime:
+    """`Start date` is `DD/MM/YYYY HH:MM:SS` text in the export, but a cell re-saved from
+    Excel can hold a real date (or its ISO text) - accept all of those."""
+    if isinstance(raw, dt.datetime):
+        return raw
+    text = _text(raw)
+    for fmt in _BEGIN_FORMATS:
+        try:
+            return dt.datetime.strptime(text, fmt)
+        except ValueError:
             continue
-        if in_detail:
-            for _, text in cells:
-                if text.strip():
-                    detail_lines.append(text.strip())
-            continue
-        for key, fragment in _LABELS.items():
-            if key not in fields:
-                value = _label_value(cells, fragment)
-                if value:
-                    fields[key] = value
-
-    detail = "\n".join(detail_lines)
-    reported, findings, remedy, freeform = _split_sections(detail)
-    ref = _CALL_REF_RE.search(detail)
-
-    return Ticket(
-        internal_id=header.group(1),
-        title=header.group(2),
-        client_customer=fields.get("customer"),
-        contract=fields.get("contract"),
-        begin_date=_iso(fields.get("begin") or ""),
-        end_date=_iso(fields.get("end") or ""),
-        engineer=fields.get("engineer"),
-        status=fields.get("status"),
-        downtime=fields.get("downtime"),
-        reported=reported,
-        findings=findings,
-        remedy=remedy,
-        freeform=freeform,
-        call_ref_hint=ref.group(1) if ref else None,
+    raise DiscoveryError(
+        f"CarlSource ticket {ticket_id!r}: unreadable Start date {text!r} "
+        f"(expected DD/MM/YYYY HH:MM:SS)"
     )
 
 
 def parse(path) -> list[Ticket]:
-    root = ET.fromstring(Path(path).read_bytes())
-    table = root.find(".//s:Worksheet/s:Table", _NS)
-    if table is None:
-        return []
+    wb = _load_workbook(path, read_only=False)
+    try:
+        if "WO Report" not in wb.sheetnames:
+            raise DiscoveryError(f"{path!s}: no 'WO Report' sheet")
+        rows = list(wb["WO Report"].iter_rows(values_only=True))
+    finally:
+        wb.close()
+
+    idx = {name: i for i, name in enumerate(_HEADER)}
+    header_row = _find_header_row(rows)
 
     tickets: list[Ticket] = []
-    block: list[list[tuple[int, str]]] = []
-    for row in table.findall("s:Row", _NS):
-        cells = _row_cells(row)
-        first = next((t for _, t in cells if t.strip()), "")
-        if _TICKET_HEADER_RE.match(first) and not first.lower().startswith("date"):
-            if block:
-                t = _finish(block)
-                if t:
-                    tickets.append(t)
-            block = [cells]
-        else:
-            block.append(cells)
-    if block:
-        t = _finish(block)
-        if t:
-            tickets.append(t)
+    for row in rows[header_row + 1:]:
+        name = _text(row[idx["name"]]) if idx["name"] < len(row) else ""
+        if name.lower() == "lines number":
+            break  # footer row
+        internal_id = _text(row[idx["wo"]]) if idx["wo"] < len(row) else ""
+        if not internal_id.isdigit():
+            break  # a blank trailing row, or anything else unexpected
+
+        call_reference = _text(row[idx["call reference"]]) or None
+        detail = _text(row[idx["comments"]])
+        reported, findings, remedy, freeform = _split_sections(detail)
+        reported, findings, remedy = (
+            "" if textclean.is_placeholder(v) else textclean.limit_text(v, internal_id)
+            for v in (reported, findings, remedy)
+        )
+        summary = ""
+        if not (reported or findings or remedy):
+            summary = textclean.summarise_freeform(freeform, internal_id)
+
+        tickets.append(Ticket(
+            internal_id=internal_id,
+            title=_text(row[idx["name"]]),
+            client_code=_text(row[idx["client code"]]) or None,
+            client_name=_text(row[idx["client name"]]) or None,
+            status=_text(row[idx["status code"]]) or None,
+            begin_date=_parse_begin_date(row[idx["start date"]], internal_id),
+            call_ref_hint=call_reference if call_reference and call_reference.isdigit() else None,
+            call_reference=call_reference,
+            reported=reported, findings=findings, remedy=remedy, freeform=freeform,
+            call_refs=_CALL_REF_NUM_RE.findall(call_reference or ""),
+            summary=summary,
+        ))
     return tickets

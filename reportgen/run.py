@@ -15,7 +15,7 @@ from pathlib import Path
 
 from . import build_part_a, config
 from . import bundle as bundle_mod
-from . import chart_pie, parse_carlsource, parse_phonelogs
+from . import parse_carlsource, parse_phonelogs
 from .discover import DiscoveryError, Manifest, discover_inputs
 from .link import link
 from .regions import PART_A_REGIONS, Regions
@@ -104,8 +104,7 @@ def _stage_build(args) -> int:
         print(f"build: {_rel(bundle_path)} not found - run `--stage parse` first",
               file=sys.stderr)
         return 2
-    out = build_part_a.build(bundle_path, args.output)
-    data = chart_pie.calls_by_site(json.loads(bundle_path.read_text(encoding="utf-8")))
+    out, data = build_part_a.build(bundle_path, args.output)
     print(f"Wrote {_rel(out)}")
     print("Pie (calls per site): " + ", ".join(f"{c} {n}" for c, n in data))
     print("Open it in Word to confirm the chart renders under the date.")

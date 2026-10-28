@@ -14,7 +14,8 @@ def make_phonelogs(path: Path, calls, stats_lines: list[str] | None = None) -> N
     """Build a phone-log workbook.
 
     `calls` items are either a `datetime` (location defaults to ZQN_APAC) or a dict with
-    keys number / entered / location_id / comments / transferred_to / inquiry.
+    keys number / entered / location_id / comments / transferred_to / inquiry. `entered`
+    may also be a `"DD/MM/YYYY HH:MM:SS"` string - the real export mixes both.
     """
     wb = openpyxl.Workbook()
     wb.remove(wb.active)
@@ -30,7 +31,8 @@ def make_phonelogs(path: Path, calls, stats_lines: list[str] | None = None) -> N
         when = item.get("entered")
         logs.append([
             item.get("number", i), "Divert",
-            item.get("comments", f"E-mailed on {when:%d-%b-%Y} by Op" if when else ""),
+            item.get("comments",
+                     f"E-mailed on {when:%d-%b-%Y} by Op" if isinstance(when, dt.datetime) else ""),
             "Op", when, item.get("location_id", "ZQN_APAC"),
             item.get("transferred_to", "Divert #2"), item.get("inquiry", ""),
         ])
@@ -55,54 +57,35 @@ def make_baganalytics(path: Path, start: dt.date, end: dt.date) -> None:
     wb.save(path)
 
 
-_SS_HEAD = (
-    '<?xml version="1.0" encoding="UTF-8"?>\n'
-    '<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"'
-    ' xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">'
-    '<Worksheet ss:Name="Report"><Table>'
-)
-_SS_TAIL = "</Table></Worksheet></Workbook>"
-
-
-def _row(*cells: tuple[int, str]) -> str:
-    out = ["<Row>"]
-    for idx, text in cells:
-        text = (text or "").replace("&", "&amp;").replace("<", "&lt;")
-        out.append(f'<Cell ss:Index="{idx}"><Data ss:Type="String">{text}</Data></Cell>')
-    out.append("</Row>")
-    return "".join(out)
-
-
-def carlsource_xml(tickets: list[dict]) -> str:
-    """`tickets`: dicts with id, title, customer, contract, begin, end, engineer, status,
-    reported, findings, remedy, freeform."""
-    rows = [_row((1, "INTERVENTION REPORT"))]
-    for t in tickets:
-        rows.append(_row((1, f"{t['id']} - {t['title']}")))
-        rows.append(_row((1, "GENERAL INFORMATION")))
-        rows.append(_row((1, "Client/Customer :"), (7, t.get("customer", "")),
-                         (8, "Contrat / Contract: "), (12, t.get("contract", ""))))
-        rows.append(_row((1, "Date de debut / Begin date : "), (7, t.get("begin", "")),
-                         (8, "Date de fin / End date : "), (12, t.get("end", ""))))
-        rows.append(_row((1, "Reception appel / Reception call : "), (7, t.get("engineer", ""))))
-        rows.append(_row((1, "Etat du ticket / Ticket status : "), (7, t.get("status", ""))))
-        rows.append(_row((1, "Temps d'arret / Downtime :  "), (7, "00:00:00")))
-        rows.append(_row((1, "DETAIL DE L'INTERVENTION / WORK DETAILS")))
-        rows.append(_row((1, "Help:")))
-        body = t.get("body")
-        if body is None:
-            body = (f"Reported: {t.get('reported', '')}\n"
-                    f"Findings: {t.get('findings', '')}\n"
-                    f"Remedy: {t.get('remedy', '')}\n")
-            if t.get("freeform"):
-                body += f"24/08:\n{t['freeform']}\n"
-        for line in body.split("\n"):
-            rows.append(_row((1, line)))
-    return _SS_HEAD + "".join(rows) + _SS_TAIL
-
-
 def make_carlsource(path: Path, tickets: list[dict]) -> None:
-    path.write_text(carlsource_xml(tickets), encoding="utf-8")
+    """Build a CarlSource 'WO Report' workbook (the export's real, tabular shape).
+
+    `tickets`: dicts with id, title, client_code, client_name, status, begin
+    (`"DD/MM/YYYY HH:MM:SS"`), call_reference, and either `comments` directly or
+    reported/findings/remedy/freeform to assemble it.
+    """
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active)
+    ws = wb.create_sheet("WO Report")
+    ws.append(["Filter criteria"])
+    ws.append(["[Lines selected ]"])
+    ws.append(["Name", "WO", "Call Reference", "Status code", "Start date",
+               "Client Code", "Client name", "Comments"])
+    for t in tickets:
+        comments = t.get("comments")
+        if comments is None:
+            comments = (f"Call Reference: {t.get('call_reference', '')}\nHelp:\n\n"
+                        f"Reported: {t.get('reported', '')}\n"
+                        f"Findings: {t.get('findings', '')}\n"
+                        f"Remedy: {t.get('remedy', '')}\n")
+            if t.get("freeform"):
+                comments += f"\n24/08:\n{t['freeform']}\n"
+        ws.append([
+            t["title"], t["id"], t.get("call_reference", ""), t.get("status", ""),
+            t.get("begin", ""), t.get("client_code", ""), t.get("client_name", ""), comments,
+        ])
+    ws.append(["Lines number", float(len(tickets))])
+    wb.save(path)
 
 
 @pytest.fixture
@@ -117,7 +100,7 @@ def dropbox(tmp_path: Path) -> Path:
         [dt.datetime(2026, 8, 24, 1, 35), dt.datetime(2026, 8, 27, 9, 20),
          dt.datetime(2026, 8, 30, 22, 5)],
     )
-    (root / "PartA" / "Carlsource - 24.08 to 30.08.2026.xls").write_text("<Workbook/>", "utf-8")
+    make_carlsource(root / "PartA" / "Carlsource - 24.08 to 30.08.2026.xlsx", [])
 
     shutil.copytree(REPO_ROOT / "knowledge", tmp_path / "knowledge")
     return root

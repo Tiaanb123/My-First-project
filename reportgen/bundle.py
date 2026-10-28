@@ -8,6 +8,14 @@ from .parse_phonelogs import PhoneData
 from .regions import PART_A_REGIONS, REGION_ORDER, Regions
 
 
+def _site_count(entries: list[dict]) -> int:
+    """Calls + direct contacts under a site (the same unit as the region grid)."""
+    total = 0
+    for e in entries:
+        total += len(e["call_numbers"]) if e["kind"] == "ticket" else 1
+    return total
+
+
 def build_part_a(
     week: dict,
     phone: PhoneData,
@@ -26,12 +34,14 @@ def build_part_a(
     for entry in links.entries:
         region = entry.region
         site_code = entry.site_code or "UNKNOWN"
-        site_name = regions.by_code[site_code].name if site_code in regions.by_code else (
-            entry.data.get("location_id") or site_code
+        known = regions.by_code.get(site_code)
+        site_name = known.name if known else (
+            entry.data.get("location_id") or entry.data.get("client_name") or site_code
         )
         sites = by_region.setdefault(region, {})
         site = sites.setdefault(site_code, {"code": site_code, "name": site_name,
-                                            "country": None, "_entries": []})
+                                            "country": known.country if known else None,
+                                            "_entries": []})
         site["_entries"].append(entry)
 
     regions_out = []
@@ -46,7 +56,8 @@ def build_part_a(
                 for e in sorted(site["_entries"], key=lambda e: e.sort_key)
             ]
             site_list.append({"code": site["code"], "name": site["name"],
-                              "country": site["country"], "entries": entries})
+                              "country": site["country"], "count": _site_count(entries),
+                              "entries": entries})
         regions_out.append({"name": region, "count": region_counts[region], "sites": site_list})
 
     return {
@@ -72,6 +83,8 @@ def build_part_a(
             "region_counts": region_counts,
             "regions": regions_out,
             "flags": links.flags,
+            # Kept for future reconciliation/debugging use - not surfaced by the CLI
+            # or the .docx build yet.
             "unmatched_tickets": links.unmatched_tickets,
             "unmatched_calls": links.unmatched_calls,
         },
