@@ -9,7 +9,8 @@ description: >-
 
 # build-reports
 
-Full spec: `Intructions/Intructions.md` (authoritative). Design + repo layout:
+Full spec: `Intructions/Intructions.md` (authoritative); Part B: `docs/PART_B_SPEC.md`.
+Design + repo layout:
 `~/.claude/plans/my-goal-is-to-goofy-sprout.md`. Step 1 detail:
 `~/.claude/plans/for-line-113-in-serene-melody.md`.
 
@@ -31,7 +32,7 @@ Reporting week:  Monday 24th August to Sunday 30th August 2026
                  (2026-08-24 to 2026-08-30)
 
 PartA:
-  phonelogs   Phonelogs - 24.08 to 30.08.2026.xlsx
+  phonelogs   Phonelogs - 24.08 to 30.08.2026.xlsx   ("Phone Logs - ..." also accepted)
   carlsource  Carlsource - 24.08 to 30.08.2026.xls
 
 PartB:
@@ -53,7 +54,8 @@ deliberate hard stop (wrong day-of-week, mismatched Part A files, a Part B expor
 different week, an unknown GlideView airport, phone-log dates outside the named week, …).
 
 **On success:** show the user the week + file table and get explicit confirmation before
-step 2.
+step 2. If it printed a `!! NOTICE:` (e.g. the Phonelogs/Carlsource files were swapped and
+were identified by content instead), relay it to the user too.
 
 ## Site / region data  *(implemented)*
 
@@ -67,13 +69,15 @@ The lookup ("LookUp - Sites and Emails.xlsx") need not be in the repo — `build
 also checks `$ALSTEF_SITES_LOOKUP` and `$OneDrive/Support Reports/`. Do not hand-edit
 `sites.yaml`; put overrides in `sites_overlay.yaml`.
 
-## Step 2 — Choose Part B sites/groups  *(not yet implemented)*
+## Step 2 — Choose Part B sites/groups  *(implemented)*
 
-Pre-tick any site with a Part B file present in the manifest. Resolve standing groups
-from `knowledge/groups.yaml`. Standing individual Part B reports: Adelaide (ADL), Aramex
-(AMX), Bermuda (BDA), Canadian Sites (group), Perth (PER), San Francisco (SFO), StarTrack
-(the `ST_*` parcels sites), Queenstown (ZQN), Dunedin (DUD), Christchurch (CHC). If the
-user names a site not on that list, ask "one-off or new standing group?".
+Pre-tick every site with a Part B file in the manifest (that's the default when
+`--sites` is omitted) and ask the user which other reports they want this week.
+Standing individual reports: ADL, AMX, BDA, PER, SFO, ZQN, DUD, CHC. Standing groups:
+`"Canadian Sites"` (region Canada) and `StarTrack` (`ST_*` codes) — one document, each
+Active member (or any member with entries) under its own subheading. Registry:
+`reportgen/partb/sites.py`. If the user names anything else, `--stage partb` stops with
+"one-off or standing?" — ask the user, don't guess.
 
 ## Step 3 — Parse Part A  *(implemented, Part A only)*
 
@@ -100,6 +104,24 @@ headings + ticket/direct/call blocks with raw Reported/Findings/Remedy. No AI pr
 
 `python -m reportgen.demo` (or the packaged `dist/WeeklyReport.exe` — see `build_exe.bat`
 and README) chains discover → pause → parse → build and opens `Output/`.
+
+## Step 5b — Build Part B .docx  *(implemented)*
+
+```
+python -m reportgen.run --stage partb                       # sites with a BHS export
+python -m reportgen.run --stage partb --sites ZQN CHC ADL "Canadian Sites" StarTrack DUD
+```
+
+Needs `work/bundle.json` from step 3 (tickets are never re-parsed). Per site with a BHS
+export: GlideView files are recalculated on a copy through **Excel** (COM; LibreOffice
+fallback) before SUMMARY is read, key totals are cross-checked against the underlying
+sheets (a mismatch is a hard stop), and the figures are archived to
+`history/<SITE>/<week_start>.json`. Writes
+`Output/<SITE-OR-GROUP>_Weekly_Phone_Logs_and_BHS_Statistics.docx`.
+
+Relay to the user: every `!! NOTICE:` line (SUMMARY needed recalculation, export covers
+only part of the week, swapped Part A files) and the ADL raw EDS table (L1/L2 stay
+"Provisional – withheld" until Tiaan confirms the BAGanalytics level mapping).
 
 ## Steps 4, 6  *(not yet implemented)*
 

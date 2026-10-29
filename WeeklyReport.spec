@@ -9,8 +9,8 @@ a = Analysis(
         ("Intructions/Templates", "templates"),
         ("reportgen/assets/chart_pie", "chart_pie"),
     ],
-    hiddenimports=collect_submodules("openpyxl"),
-    excludes=["tkinter", "matplotlib", "numpy", "pandas", "PIL"],
+    hiddenimports=collect_submodules("openpyxl") + ["win32com.client", "pythoncom"],
+    excludes=["tkinter", "pandas"],
 )
 pyz = PYZ(a.pure)
 

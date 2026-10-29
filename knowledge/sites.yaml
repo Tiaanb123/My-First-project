@@ -117,6 +117,7 @@ sites:
     contact_email: Blair.Poland@alstefgroup.com
     airport_name: Christchurch International Airport
     bhs_source: glideview
+    prepared_for: Blair Poland, National Support Services Manager
   COK:
     location_id: COK_APAC
     name: Cochin Intl. Airport
@@ -376,7 +377,7 @@ sites:
     region: Canada
     contracts:
     - BHSUST
-    status: Stop Service
+    status: Active
     contact_raw: Send feedback form to caller
   WLG:
     location_id: WLG_APAC
@@ -424,7 +425,7 @@ sites:
     region: Canada
     contracts:
     - BHSYKF
-    status: Active
+    status: Expired
     contact_raw: Send feedback form to caller
   YLW:
     location_id: YLW_APAC
@@ -550,3 +551,5 @@ sites:
     contact_email: sean.whittaker@queenstownairport.co.nz
     airport_name: Queenstown International Airport
     bhs_source: glideview
+    prepared_for: Sean Whittaker, Queenstown Airport
+    prepared_for_cc: Blair Poland, National Support Services Manager, Alstef Group

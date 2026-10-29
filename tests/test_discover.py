@@ -236,6 +236,37 @@ def test_discover_inputs_unknown_glideview_airport(dropbox):
         discover_inputs(dropbox, KNOWLEDGE(dropbox))
 
 
+def test_parse_parta_week_accepts_phone_logs_spelling():
+    got = parse_parta_week(Path("Phone Logs - 19.10 to 25.10.2026.xlsx"))
+    assert (got.kind, got.start, got.end) == (
+        "phonelogs", dt.date(2026, 10, 19), dt.date(2026, 10, 25))
+
+
+def test_discover_inputs_phone_logs_spelling(dropbox):
+    part_a = dropbox / "PartA"
+    (part_a / "Phonelogs - 24.08 to 30.08.2026.xlsx").rename(
+        part_a / "Phone Logs - 24.08 to 30.08.2026.xlsx")
+    manifest = discover_inputs(dropbox, KNOWLEDGE(dropbox))
+    assert manifest.phonelogs.name == "Phone Logs - 24.08 to 30.08.2026.xlsx"
+    assert manifest.notices == []
+
+
+def test_discover_inputs_swapped_part_a_files_detected_by_content(dropbox):
+    part_a = dropbox / "PartA"
+    phone = part_a / "Phonelogs - 24.08 to 30.08.2026.xlsx"
+    carl = part_a / "Carlsource - 24.08 to 30.08.2026.xlsx"
+    tmp = part_a / "swap.tmp"
+    phone.rename(tmp)
+    carl.rename(phone)
+    tmp.rename(carl)
+
+    manifest = discover_inputs(dropbox, KNOWLEDGE(dropbox))
+    assert manifest.phonelogs == carl   # holds the 'Phone Logs' sheet
+    assert manifest.carlsource == phone  # holds the 'WO Report' sheet
+    assert len(manifest.notices) == 2
+    assert all("using it as the" in n for n in manifest.notices)
+
+
 def test_discover_inputs_ignores_unrecognised_part_b_file(dropbox):
     (dropbox / "PartB" / "notes.txt").write_text("random", "utf-8")
     manifest = discover_inputs(dropbox, KNOWLEDGE(dropbox))

@@ -3,9 +3,10 @@
 Generates the Alstef weekly support reports from the raw exports:
 
 - **Part A** — master *Weekly Support Tickets Report* (all regions/sites).
-- **Part B** — per-site *Phone Logs & BHS Statistics* reports. *(not built yet)*
+- **Part B** — per-site *Phone Logs & BHS Statistics* reports.
 
-Authoritative spec: [`Intructions/Intructions.md`](Intructions/Intructions.md).
+Authoritative spec: [`Intructions/Intructions.md`](Intructions/Intructions.md); Part B detail:
+[`docs/PART_B_SPEC.md`](docs/PART_B_SPEC.md).
 
 ## Status
 
@@ -14,7 +15,8 @@ Authoritative spec: [`Intructions/Intructions.md`](Intructions/Intructions.md).
 | `discover` — reporting week + input manifest | ✅ |
 | `parse` — Part A: phone logs + CarlSource + call↔ticket link → `work/bundle.json` | ✅ |
 | `build` — Part A `.docx` (letterhead, pie chart, region blocks, **raw** ticket text) | ✅ V1 |
-| narrative (AI prose), Part B / BHS, charts beyond the pie | ⬜ |
+| `partb` — per-site Part B `.docx` (tickets + BHS table + Performance Review, charts) | ✅ ZQN / CHC / ADL extractors, groups |
+| narrative (AI prose) | ⬜ |
 
 ## Demo (standalone exe)
 
@@ -38,6 +40,7 @@ py -m venv .venv
 .venv\Scripts\python -m reportgen.build_sites          # regenerate knowledge/sites.yaml
 .venv\Scripts\python -m reportgen.run --stage parse
 .venv\Scripts\python -m reportgen.run --stage build
+.venv\Scripts\python -m reportgen.run --stage partb [--sites ZQN CHC ADL "Canadian Sites"]
 .venv\Scripts\python -m pytest
 ```
 

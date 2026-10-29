@@ -29,6 +29,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 DROPBOX = _data() / "DropBox"
 WORK = _data() / "work"
 OUTPUT = _data() / "Output"
+# Part B: each week's BhsStats per site, kept so week-over-week trends can return later
+HISTORY = _data() / "history"
 
 KNOWLEDGE = _assets() / "knowledge"
 TEMPLATES = _assets() / ("templates" if FROZEN else "Intructions/Templates")

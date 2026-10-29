@@ -19,23 +19,27 @@ import yaml
 from . import dates
 
 
-def _load_workbook(path: Path, read_only: bool = True):
-    """openpyxl data-only (read-only by default), minus the noisy 'no default style'
-    warning some third-party exports (GlideView, BagAnalytics, CarlSource) trigger.
+def _load_workbook(path: Path, read_only: bool = True, data_only: bool = True):
+    """openpyxl data-only (read-only by default), minus the noisy 'no default style' /
+    'Print area' warnings some third-party exports (GlideView, BagAnalytics, CarlSource)
+    trigger.
 
     `read_only=False` is needed for exports whose sheet dimension metadata is wrong or
-    missing (the CarlSource BIRT export truncates to one row under read-only iteration)."""
+    missing (the CarlSource BIRT export truncates to one row under read-only iteration;
+    the CHC GlideView export shows every sheet as 1x1). `data_only=False` reads formulas."""
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", message="Workbook contains no default style")
-        return openpyxl.load_workbook(path, read_only=read_only, data_only=True)
+        warnings.filterwarnings("ignore", message="Print area cannot be set")
+        return openpyxl.load_workbook(path, read_only=read_only, data_only=data_only)
 
 # --------------------------------------------------------------------------------------
 # Filename patterns
 # --------------------------------------------------------------------------------------
 
 # Part A:  "Phonelogs - 24.08 to 30.08.2026.xlsx"  /  "Carlsource - 24.08 to 30.08.2026.xls"
+# ("Phone Logs - ..." is accepted too - the export has been saved under both spellings.)
 _PARTA_RE = re.compile(
-    r"^(?P<kind>phonelogs|carlsource)\s*-\s*"
+    r"^(?P<kind>phone\s*logs|carlsource)\s*-\s*"
     r"(?P<d1>\d{1,2})\.(?P<m1>\d{1,2})\s+to\s+"
     r"(?P<d2>\d{1,2})\.(?P<m2>\d{1,2})\.(?P<y2>\d{4})$",
     re.IGNORECASE,
@@ -97,6 +101,8 @@ class Manifest:
     part_b: list[PartBInput]
     ignored: list[Path]
     root: Path
+    # things the user must be told about that didn't stop the run (e.g. swapped Part A files)
+    notices: list[str] = dataclasses.field(default_factory=list)
 
     def _rel(self, path: Path) -> str:
         try:
@@ -126,6 +132,7 @@ class Manifest:
                 for pb in self.part_b
             ],
             "ignored": [self._rel(p) for p in self.ignored],
+            "notices": list(self.notices),
         }
 
 
@@ -149,7 +156,27 @@ def parse_parta_week(path: Path) -> PartAFile:
         end = dt.date(y2, m2, d2)
     except ValueError as exc:
         raise DiscoveryError(f"{path.name!r} has an invalid calendar date: {exc}") from exc
-    return PartAFile(path=path, kind=m["kind"].lower(), start=start, end=end)
+    kind = "phonelogs" if m["kind"].lower().startswith("phone") else "carlsource"
+    return PartAFile(path=path, kind=kind, start=start, end=end)
+
+
+# Sheet that identifies each Part A export by content.
+_PARTA_SHEETS = {"phonelogs": "Phone Logs", "carlsource": "WO Report"}
+
+
+def parta_content_kind(path: Path) -> str | None:
+    """'phonelogs' / 'carlsource' from the workbook's sheet names, or None when the file
+    can't be opened (e.g. a legacy .xls) or carries neither sheet."""
+    try:
+        wb = _load_workbook(path)
+    except Exception:
+        return None
+    try:
+        names = set(wb.sheetnames)
+    finally:
+        wb.close()
+    hits = [kind for kind, sheet in _PARTA_SHEETS.items() if sheet in names]
+    return hits[0] if len(hits) == 1 else None
 
 
 # --------------------------------------------------------------------------------------
@@ -341,15 +368,26 @@ def _list_files(folder: Path) -> list[Path]:
     )
 
 
-def _classify_part_a(part_a_dir: Path) -> tuple[PartAFile, PartAFile]:
+def _classify_part_a(part_a_dir: Path) -> tuple[PartAFile, PartAFile, list[str]]:
+    """Classify the Part A files. The week comes from the filename, but *which* file is
+    which comes from the content (sheet names) - on 5-11 Oct 2026 the two exports were
+    saved under each other's names. A swap is reported back as a notice, not a stop."""
     matched: dict[str, PartAFile] = {}
     unmatched: list[str] = []
+    notices: list[str] = []
     for path in _list_files(part_a_dir):
         try:
             parsed = parse_parta_week(path)
         except DiscoveryError:
             unmatched.append(path.name)
             continue
+        content = parta_content_kind(path)
+        if content and content != parsed.kind:
+            notices.append(
+                f"{path.name!r} is named as a {parsed.kind} export but contains the "
+                f"'{_PARTA_SHEETS[content]}' sheet - using it as the {content} file"
+            )
+            parsed = dataclasses.replace(parsed, kind=content)
         if parsed.kind in matched:
             raise DiscoveryError(
                 f"more than one {parsed.kind!r} file in DropBox/PartA "
@@ -374,7 +412,7 @@ def _classify_part_a(part_a_dir: Path) -> tuple[PartAFile, PartAFile]:
             f"{phone.path.name!r} says {phone.start}–{phone.end}, "
             f"{carl.path.name!r} says {carl.start}–{carl.end}"
         )
-    return phone, carl
+    return phone, carl, notices
 
 
 def _validate_week(start: dt.date, end: dt.date) -> None:
@@ -461,7 +499,7 @@ def discover_inputs(dropbox_dir: Path, knowledge_dir: Path) -> Manifest:
     if not part_b_dir.is_dir():
         raise DiscoveryError(f"missing input folder {part_b_dir.as_posix()}")
 
-    phone, carl = _classify_part_a(part_a_dir)
+    phone, carl, notices = _classify_part_a(part_a_dir)
     start, end = phone.start, phone.end
     _validate_week(start, end)
 
@@ -484,4 +522,5 @@ def discover_inputs(dropbox_dir: Path, knowledge_dir: Path) -> Manifest:
         part_b=sorted(part_b, key=lambda pb: pb.site),
         ignored=ignored,
         root=dropbox_dir.parent,
+        notices=notices,
     )

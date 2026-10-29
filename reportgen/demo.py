@@ -1,7 +1,7 @@
 """One-shot demo entry point: drop files in DropBox/, run this, get the Word report.
 
 Packaged as WeeklyReport.exe (see build_exe.bat). Chains discover -> (pause) -> parse ->
-build, then opens the Output folder.
+build (Part A) -> Part B for every site with a BHS export, then opens the Output folder.
 """
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ import traceback
 
 from . import build_part_a, config
 from .discover import DiscoveryError, discover_inputs
-from .run import print_manifest, run_parse
+from .run import print_manifest, run_parse, run_part_b
 
 for _stream in (sys.stdout, sys.stderr):
     try:
@@ -53,6 +53,11 @@ def main() -> int:
         print()
         bundle_path = run_parse(config.DROPBOX, config.KNOWLEDGE, config.WORK)
         out, _chart_data = build_part_a.build(bundle_path, config.OUTPUT)
+        print(f"\n[OK] Part A written to:\n  {out}\n")
+        if manifest.part_b:
+            print("Part B (sites with a BHS export):")
+            run_part_b((config.DROPBOX, config.KNOWLEDGE, config.WORK, config.OUTPUT,
+                        config.HISTORY))
     except DiscoveryError as exc:
         print(f"\n[stopped] {exc}\n")
         _pause()
@@ -63,7 +68,7 @@ def main() -> int:
         _pause()
         return 1
 
-    print(f"\n[OK] Report written to:\n  {out}\n")
+    print(f"\n[OK] Reports written to:\n  {config.OUTPUT}\n")
     if sys.platform == "win32":
         try:
             os.startfile(config.OUTPUT)  # noqa: S606

@@ -3,6 +3,8 @@
   discover  - resolve the reporting week + input manifest -> work/manifest.json
   parse     - parse Part A (phone logs + CarlSource) + link -> work/bundle.json
   build     - render Part A -> Output/Weekly_Support_Tickets_Report_<week>.docx
+  partb     - render Part B -> Output/<SITE-OR-GROUP>_Weekly_Phone_Logs_and_BHS_Statistics.docx
+              (default: every site with a Part B export; or --sites ZQN CHC "Canadian Sites")
 
 See `reportgen.demo` for the one-shot drop-files-and-run entry point.
 """
@@ -47,6 +49,8 @@ def print_manifest(manifest: Manifest) -> None:
         print("\nIgnored (not a recognised input):")
         for name in d["ignored"]:
             print(f"  {Path(name).name}")
+    for notice in d["notices"]:
+        print(f"\n!! NOTICE: {notice}")
 
 
 def run_parse(dropbox: Path, knowledge: Path, work: Path) -> Path:
@@ -111,16 +115,52 @@ def _stage_build(args) -> int:
     return 0
 
 
+def run_part_b(args_or_paths, names: list[str] | None = None):
+    """discover + Part B build; prints notices/flags. Returns PartBResult."""
+    from .partb.build import build_part_b
+
+    dropbox, knowledge, work, output, history = args_or_paths
+    manifest = discover_inputs(dropbox, knowledge)
+    bundle_path = Path(work) / "bundle.json"
+    if not bundle_path.is_file():
+        raise DiscoveryError(f"{_rel(bundle_path)} not found - run `--stage parse` first")
+    result = build_part_b(bundle_path, manifest, knowledge, output, work, history, names)
+    for notice in manifest.notices + result.notices:
+        print(f"!! NOTICE: {notice}")
+    for flag in result.flags:
+        print(f"  - {flag}")
+    for out in result.outputs:
+        print(f"Wrote {_rel(out)}")
+    return result
+
+
+def _stage_partb(args) -> int:
+    try:
+        run_part_b((args.dropbox, args.knowledge, args.work, args.output, args.history),
+                   args.sites or None)
+    except DiscoveryError as exc:
+        print(f"partb: {exc}", file=sys.stderr)
+        return 2
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="reportgen.run")
-    parser.add_argument("--stage", required=True, choices=["discover", "parse", "build"])
+    parser.add_argument("--stage", required=True,
+                        choices=["discover", "parse", "build", "partb"])
     parser.add_argument("--dropbox", type=Path, default=config.DROPBOX)
     parser.add_argument("--knowledge", type=Path, default=config.KNOWLEDGE)
     parser.add_argument("--work", type=Path, default=config.WORK)
     parser.add_argument("--output", type=Path, default=config.OUTPUT)
+    parser.add_argument("--history", type=Path, default=config.HISTORY)
+    parser.add_argument("--sites", nargs="*", default=None,
+                        help="Part B reports to build (site codes or 'Canadian Sites' / "
+                             "'StarTrack'); default = every site with a Part B export")
     args = parser.parse_args(argv)
 
-    return {"discover": _stage_discover, "parse": _stage_parse, "build": _stage_build}[args.stage](args)
+    stages = {"discover": _stage_discover, "parse": _stage_parse, "build": _stage_build,
+              "partb": _stage_partb}
+    return stages[args.stage](args)
 
 
 if __name__ == "__main__":

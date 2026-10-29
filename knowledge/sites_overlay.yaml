@@ -8,9 +8,13 @@ overrides:
   ZQN:
     airport_name: "Queenstown International Airport"
     bhs_source: glideview
+    # Part B "Prepared for" line (BHS Performance Review). Omit when unknown - never guess.
+    prepared_for: "Sean Whittaker, Queenstown Airport"
+    prepared_for_cc: "Blair Poland, National Support Services Manager, Alstef Group"
   CHC:
     airport_name: "Christchurch International Airport"
     bhs_source: glideview
+    prepared_for: "Blair Poland, National Support Services Manager"
   DUD:
     airport_name: "Dunedin International Airport"
   ADL:
